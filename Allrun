@@ -1,0 +1,79 @@
+
+#!/bin/bash
+
+set -euo pipefail
+
+BASE_CFG="baseline.cfg"
+MESH="geometry/spiked_mesh.su2"
+
+# Number of parallel processes
+NPROC=8
+
+ROOT="$(pwd)"
+
+# Check input files
+test -f "$BASE_CFG"
+test -f "$MESH"
+
+# Mach number | Maximum iterations | Restart
+STAGES=(
+    "0.9 500 NO"
+    "2.0 500 YES"
+    "5.0 1000 YES"
+    "7.0 10000 YES"
+)
+
+PREVIOUS=""
+
+for STAGE in "${STAGES[@]}"; do
+
+    read -r MACH ITER RESTART <<< "$STAGE"
+
+    CASE="Mach_${MACH}"
+
+    echo "========================================"
+    echo "Running Mach $MACH"
+    echo "Iterations: $ITER"
+    echo "Restart: $RESTART"
+    echo "========================================"
+
+    # Prevent accidental overwriting
+    mkdir "$CASE"
+
+    cp "$BASE_CFG" "$CASE/config.cfg"
+    cp "$MESH" "$CASE/"
+
+    cd "$CASE"
+
+    # Modify configuration
+    sed -i "s/^MACH_NUMBER=.*/MACH_NUMBER= $MACH/" config.cfg
+    sed -i "s/^ITER=.*/ITER= $ITER/" config.cfg
+    sed -i "s/^RESTART_SOL=.*/RESTART_SOL= $RESTART/" config.cfg
+
+    # Reset CFL at the beginning of each stage
+    sed -i "s/^CFL_NUMBER=.*/CFL_NUMBER= 1.0/" config.cfg
+
+    # Set restart filenames
+    sed -i "s/^SOLUTION_FILENAME=.*/SOLUTION_FILENAME= solution_flow/" config.cfg
+    sed -i "s/^RESTART_FILENAME=.*/RESTART_FILENAME= restart_flow/" config.cfg
+
+    # Copy previous solution
+    if [ "$RESTART" = "YES" ]; then
+        cp "$ROOT/$PREVIOUS/restart_flow.dat" solution_flow.dat
+    fi
+
+    # Run SU2
+    mpirun -np "$NPROC" SU2_CFD config.cfg 2>&1 | tee log_SU2.txt
+
+    # Check that the restart file exists
+    test -s restart_flow.dat
+
+    PREVIOUS="$CASE"
+
+    cd "$ROOT"
+
+done
+
+echo "========================================"
+echo "All simulations completed."
+echo "========================================"
