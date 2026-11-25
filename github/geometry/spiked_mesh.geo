@@ -5,7 +5,7 @@
 // ============================================================
 
 DefineConstant[
-  geometryConfig = {2, Choices{0="0: Blunt Body", 1="1: Conical Spike", 2="2: Hemisphere Aerodisk"}, Name "Geometry/Model type (0-2)"},
+  geometryConfig = {2, Choices{0="0: Blunt Body", 1="1: Conical Spike", 2="2: Hemisphere Aerodisk"}, Name "Geometry/Model type (0-2)"}
 ];
 
 // meshFactor scales the global mesh density.
@@ -14,7 +14,7 @@ DefineConstant[
 // Geometry Parameters (Senthilkumar et al.)
 // ---------------------------
 
-meshFactor = 1
+meshFactor = 1;
 
 D = 0.020;                            // Main bluff body diameter: 20 mm
 R = D/2;                              // Hemisphere radius (main body): 10 mm
@@ -342,3 +342,7 @@ Mesh.Smoothing = 10;
 Mesh.ElementOrder = 1;
 
 Mesh.SaveAll = 0;
+
+
+
+
