@@ -1,0 +1,206 @@
+
+#!/usr/bin/env bash
+
+set -euo pipefail
+
+ROOT="$(cd "$(dirname "$0")" && pwd)"
+cd "$ROOT"
+
+NPROC=${NPROC:-8}
+START_FROM=${START_FROM:-}
+
+BASE_CFG="$ROOT/baseline.cfg"
+MESH="$ROOT/geometry/spiked_mesh.su2"
+
+# Mach | Maximum iterations | Numerical scheme
+
+STAGES=(
+    "0.9 2000 ROE"
+    "1.5 2000 ROE"
+    "2.0 3000 ROE"
+    "4.0 5000 ROE"
+    "5.0 5000 ROE"
+    "7.0 30000 ROE"
+    "7.0 30000 JST"
+)
+
+PREVIOUS=""
+RESUME_FOUND=NO
+
+if [[ ! -s "$BASE_CFG" ]]; then
+    echo "ERROR: Missing baseline.cfg"
+    exit 1
+fi
+
+if [[ ! -s "$MESH" ]]; then
+    echo "ERROR: Missing mesh $MESH"
+    exit 1
+fi
+
+command -v SU2_CFD >/dev/null
+command -v mpirun >/dev/null
+
+# Resume from an existing simulation
+
+if [[ -n "$START_FROM" ]]; then
+
+    PREVIOUS="$ROOT/Mach_$START_FROM"
+
+    if [[ ! -s "$PREVIOUS/restart_flow.dat" ]]; then
+        echo "ERROR: Missing restart file in $PREVIOUS"
+        exit 1
+    fi
+
+    if [[ ! -f "$PREVIOUS/spiked_mesh.su2" ]]; then
+        echo "ERROR: Missing previous mesh"
+        exit 1
+    fi
+
+    echo "Resuming from Mach $START_FROM"
+
+else
+
+    RESUME_FOUND=YES
+
+fi
+
+# Mach continuation loop
+
+for STAGE in "${STAGES[@]}"; do
+
+    read -r MACH MAXITER SCHEME <<< "$STAGE"
+
+    if [[ "$SCHEME" == "JST" ]]; then
+        CASE="$ROOT/Mach_${MACH}_JST"
+    else
+        CASE="$ROOT/Mach_$MACH"
+    fi
+
+    # Skip stages preceding the resume point
+
+    if [[ "$RESUME_FOUND" == "NO" ]]; then
+
+        if [[ "$MACH" == "$START_FROM" ]]; then
+            RESUME_FOUND=YES
+        fi
+
+        continue
+
+    fi
+
+    echo ""
+    echo "========================================"
+    echo "Mach number: $MACH"
+    echo "Scheme: $SCHEME"
+    echo "Maximum iterations: $MAXITER"
+    echo "MPI processes: $NPROC"
+    echo "========================================"
+
+    # Preserve existing simulation directories
+
+    if [[ -e "$CASE" ]]; then
+
+        if [[ -f "$CASE/.completed" ]]; then
+            echo "ERROR: Completed simulation already exists:"
+            echo "$CASE"
+            exit 1
+        fi
+
+        BACKUP="${CASE}_backup_$(date +%Y%m%d_%H%M%S)"
+
+        echo "Preserving previous attempt in:"
+        echo "$BACKUP"
+
+        mv "$CASE" "$BACKUP"
+
+    fi
+
+    mkdir "$CASE"
+
+    cp "$BASE_CFG" "$CASE/config.cfg"
+    cp "$MESH" "$CASE/spiked_mesh.su2"
+
+    RESTART=NO
+
+    # Import previous flow solution
+
+    if [[ -n "$PREVIOUS" ]]; then
+
+        cmp "$PREVIOUS/spiked_mesh.su2" \
+            "$CASE/spiked_mesh.su2"
+
+        cp "$PREVIOUS/restart_flow.dat" \
+           "$CASE/solution_flow.dat"
+
+        RESTART=YES
+
+    fi
+
+    # Update configuration
+
+    CFG="$CASE/config.cfg"
+
+    sed -i "s|^MACH_NUMBER.*|MACH_NUMBER= $MACH|" "$CFG"
+
+    sed -i "s|^ITER=.*|ITER= $MAXITER|" "$CFG"
+
+    sed -i "s|^RESTART_SOL.*|RESTART_SOL= $RESTART|" "$CFG"
+
+    sed -i "s|^CONV_NUM_METHOD_FLOW.*|CONV_NUM_METHOD_FLOW= $SCHEME|" "$CFG"
+
+    sed -i "s|^MESH_FILENAME.*|MESH_FILENAME= spiked_mesh.su2|" "$CFG"
+
+    sed -i "s|^SOLUTION_FILENAME.*|SOLUTION_FILENAME= solution_flow.dat|" "$CFG"
+
+    sed -i "s|^RESTART_FILENAME.*|RESTART_FILENAME= restart_flow.dat|" "$CFG"
+
+    # Conservative CFL for ROE-to-JST transition
+
+    if [[ "$SCHEME" == "JST" ]]; then
+
+        sed -i "s|^CFL_NUMBER.*|CFL_NUMBER= 1.0|" "$CFG"
+
+        sed -i "s|^CFL_ADAPT_PARAM.*|CFL_ADAPT_PARAM= ( 0.1, 1.01, 1.0, 20.0 )|" "$CFG"
+
+    fi
+
+    echo "Restart: $RESTART"
+
+    # Launch SU2
+
+    (
+        cd "$CASE"
+
+        mpirun -np "$NPROC" SU2_CFD config.cfg \
+            2>&1 | tee log_SU2.txt
+
+        if [[ ! -s restart_flow.dat ]]; then
+            echo "ERROR: Restart file was not generated."
+            exit 1
+        fi
+
+        if ! grep -q "Exit Success (SU2_CFD)" log_SU2.txt; then
+            echo "ERROR: Solver did not terminate successfully."
+            exit 1
+        fi
+
+        touch .completed
+    )
+
+    PREVIOUS="$CASE"
+
+    echo "Mach $MACH - $SCHEME completed."
+    echo "Check history.csv for actual convergence."
+
+done
+
+if [[ "$RESUME_FOUND" == "NO" ]]; then
+    echo "ERROR: START_FROM does not match a Mach stage."
+    exit 1
+fi
+
+echo ""
+echo "========================================"
+echo "MACH CONTINUATION COMPLETED"
+echo "Final solution: $PREVIOUS"
+echo "========================================"
