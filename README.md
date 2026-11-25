@@ -1,2 +1,2 @@
 - mesh più grezza possibile che riesca ad arrivare a convergenza
-- 
+- capire come settare e cominciare mesh adaptation
