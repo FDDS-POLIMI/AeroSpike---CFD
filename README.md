@@ -1,0 +1,2 @@
+- mesh più grezza possibile che riesca ad arrivare a convergenza
+- 
