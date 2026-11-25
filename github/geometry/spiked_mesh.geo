@@ -47,9 +47,9 @@ tBLtip = blThickness; // total thickness of the transfinite lines region
 // Flow Domain Dimensions
 // ---------------------------
 
-xmin = -30*D;                         // Upstream boundary
-xmax =  30*D;                         // Downstream boundary (ridotto a 14D come da Fig. 2 del paper)
-ymax =  30*D;                         // Farfield radius (10D come da Fig. 2 del paper)
+xmin = -10*D;                         // Upstream boundary
+xmax =  14*D;                         // Downstream boundary (ridotto a 14D come da Fig. 2 del paper)
+ymax =  10*D;                         // Farfield radius (10D come da Fig. 2 del paper)
 
 // Intersezione geometrica tra lo stelo e la testa emisferica del corpo principale
 xAttach = R - Sqrt(R*R - shaftR*shaftR);
@@ -71,24 +71,22 @@ If (xTip <= xmin)
 EndIf
 
 // ---------------------------
-// Mesh Parameters
+// Mesh Parameters - Coarse mesh for adaptation
 // ---------------------------
 
-h_wall = meshFactor*D/30;   // 0.667 mm
-h_tip  = meshFactor*D/80;   // 0.250 mm
-h_far  = meshFactor*4*D;    // 80.00 mm
+// Mesh resolution
+h_wall = meshFactor*D/50;       // 0.40 mm
+h_tip  = meshFactor*D/133.3333; // 0.15 mm
+h_far  = meshFactor*D/2.5;      // 8.00 mm
 
 lc = h_far;
 
-// Near-body transition
-nearDist = 0.5*D;
-h_near = meshFactor*D/15;
+// Distance controlling progressive mesh growth
+wallDistMin = 0.05*D;  // 1 mm
+wallDistMax = 3.00*D;  // 60 mm
 
-// Farfield transition
-wallDistMax = 15*D;
-
-// Spike tip refinement
-tipDistMax = 1.5*D;
+tipDistMin  = 0.10*D;  // 2 mm
+tipDistMax  = 1.00*D;  // 20 mm
 
 // ---------------------------
 // Domain corner points 
@@ -228,55 +226,37 @@ Physical Curve("farfield") = {91};
 Physical Curve("inlet") = {92};
 
 // ---------------------------
-// Progressive mesh size field
+// Graded size field around all walls
 // ---------------------------
 
-// Distance from all solid walls
 Field[1] = Distance;
 Field[1].CurvesList = {wallCurves[]};
-Field[1].Sampling = 1500;
+Field[1].Sampling = 300;
 
-// Near-wall growth rate
-growthNear = (h_near-h_wall)/nearDist;
+Field[2] = Threshold;
+Field[2].InField = 1;
+Field[2].SizeMin = h_wall;
+Field[2].SizeMax = h_far;
+Field[2].DistMin = 0.10*D;
+Field[2].DistMax = 2.00*D;
 
-// Farfield growth rate
-growthFar = (h_far-h_near)/(wallDistMax-nearDist);
-
-// Piecewise linear growth
-Field[2] = MathEval;
-Field[2].F = Sprintf(
-  "Min(%g, %g + %g*Min(F1,%g) + %g*Max(F1-%g,0))",
-  h_far,
-  h_wall,
-  growthNear,
-  nearDist,
-  growthFar,
-  nearDist
-);
-
-// Additional refinement around the spike tip
 If (geometryConfig != 0)
-
   Field[3] = Distance;
-  Field[3].CurvesList = {tipCurves[]};
-  Field[3].Sampling = 400;
+  Field[3].CurvesList = {wallCurves[]};
+  Field[3].Sampling = 150;
 
   Field[4] = Threshold;
   Field[4].InField = 3;
   Field[4].SizeMin = h_tip;
   Field[4].SizeMax = h_far;
-  Field[4].DistMin = 0.025*D;
-  Field[4].DistMax = tipDistMax;
+  Field[4].DistMin = 1.80*shaftD;
+  Field[4].DistMax = 20.00*shaftD;
 
   Field[5] = Min;
   Field[5].FieldsList = {2, 4};
-
   Background Field = 5;
-
 Else
-
   Background Field = 2;
-
 EndIf
 
 // -------------------------
@@ -327,7 +307,3 @@ Mesh.Smoothing = 10;
 Mesh.ElementOrder = 1;
 
 Mesh.SaveAll = 0;
-
-
-
-
