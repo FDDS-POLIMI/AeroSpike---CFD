@@ -5,7 +5,8 @@
 // ============================================================
 
 DefineConstant[
-  geometryConfig = {2, Choices{0="0: Blunt Body", 1="1: Conical Spike", 2="2: Hemisphere Aerodisk"}, Name "Geometry/Model type (0-2)"}
+  geometryConfig = {2, Choices{0="0: Blunt Body", 1="1: Conical Spike", 2="2: Hemisphere Aerodisk"}, Name "Geometry/Model type (0-2)"},
+  meshFactor    = {1.0, Min 0.2, Max 5.0, Step 0.1, Name "Mesh/Resolution factor"}
 ];
 
 // meshFactor scales the global mesh density.
@@ -13,8 +14,6 @@ DefineConstant[
 // ---------------------------
 // Geometry Parameters (Senthilkumar et al.)
 // ---------------------------
-
-meshFactor = 1;
 
 D = 0.020;                            // Main bluff body diameter: 20 mm
 R = D/2;                              // Hemisphere radius (main body): 10 mm
@@ -72,26 +71,22 @@ If (xTip <= xmin)
 EndIf
 
 // ---------------------------
-// Mesh Parameters
+// Mesh Parameters - Coarse mesh for adaptation
 // ---------------------------
 
+// Mesh resolution
 h_wall = meshFactor*D/50;       // 0.40 mm
 h_tip  = meshFactor*D/133.3333; // 0.15 mm
-h_mid  = meshFactor*D/2.5;      // 8.00 mm
-h_far  = meshFactor*4.0*D;      // 40.00 mm
+h_far  = meshFactor*D/2.5;      // 8.00 mm
 
 lc = h_far;
 
 // Distance controlling progressive mesh growth
-wallDistMin = 0.10*D;
-wallDistMax = 2.00*D;
+wallDistMin = 0.05*D;  // 1 mm
+wallDistMax = 3.00*D;  // 60 mm
 
-tipDistMin = 1.80*shaftD;
-tipDistMax = 20.00*shaftD;
-
-// Outer domain coarsening
-farDistMin = 2.0*D;
-farDistMax = 20.0*D;
+tipDistMin  = 0.10*D;  // 2 mm
+tipDistMax  = 1.00*D;  // 20 mm
 
 // ---------------------------
 // Domain corner points 
@@ -234,65 +229,35 @@ Physical Curve("inlet") = {92};
 // Graded size field around all walls
 // ---------------------------
 
-// Distance from solid walls
 Field[1] = Distance;
 Field[1].CurvesList = {wallCurves[]};
-Field[1].Sampling = 1500;
+Field[1].Sampling = 300;
 
-// Near-wall refinement
 Field[2] = Threshold;
 Field[2].InField = 1;
 Field[2].SizeMin = h_wall;
-Field[2].SizeMax = h_mid;
-Field[2].DistMin = wallDistMin;
-Field[2].DistMax = wallDistMax;
-Field[2].StopAtDistMax = 1;
+Field[2].SizeMax = h_far;
+Field[2].DistMin = 0.10*D;
+Field[2].DistMax = 2.00*D;
 
-// Additional refinement
 If (geometryConfig != 0)
-
   Field[3] = Distance;
   Field[3].CurvesList = {wallCurves[]};
-  Field[3].Sampling = 1500;
+  Field[3].Sampling = 150;
 
   Field[4] = Threshold;
   Field[4].InField = 3;
   Field[4].SizeMin = h_tip;
-  Field[4].SizeMax = h_mid;
-  Field[4].DistMin = tipDistMin;
-  Field[4].DistMax = tipDistMax;
-  Field[4].StopAtDistMax = 1;
+  Field[4].SizeMax = h_far;
+  Field[4].DistMin = 1.80*shaftD;
+  Field[4].DistMax = 20.00*shaftD;
 
-EndIf
-
-// ---------------------------
-// Farfield progressive coarsening
-// ---------------------------
-
-Field[7] = Distance;
-Field[7].CurvesList = {wallCurves[]};
-Field[7].Sampling = 1500;
-
-Field[8] = Threshold;
-Field[8].InField = 7;
-Field[8].SizeMin = h_mid;
-Field[8].SizeMax = h_far;
-Field[8].DistMin = farDistMin;
-Field[8].DistMax = farDistMax;
-
-// ---------------------------
-// Combine all size fields
-// ---------------------------
-
-Field[5] = Min;
-
-If (geometryConfig != 0)
-  Field[5].FieldsList = {2, 4, 8};
+  Field[5] = Min;
+  Field[5].FieldsList = {2, 4};
+  Background Field = 5;
 Else
-  Field[5].FieldsList = {2, 8};
+  Background Field = 2;
 EndIf
-
-Background Field = 5;
 
 // -------------------------
 // Boundary layer for RANS
@@ -342,7 +307,3 @@ Mesh.Smoothing = 10;
 Mesh.ElementOrder = 1;
 
 Mesh.SaveAll = 0;
-
-
-
-
